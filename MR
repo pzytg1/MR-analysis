@@ -1,0 +1,97 @@
+getwd()
+library(readxl)
+library(openxlsx)
+library(MRInstruments) 
+library(TwoSampleMR)
+library(gwasrapidd) 
+library(openxlsx)
+library(MRPRESSO)
+library(gwasrapidd)
+library(dplyr)
+baolu1 <-extract_instruments(
+  outcomes='ebi-a-GCST010118',
+  clump=TRUE, r2=0.001,
+  kb=10000,access_token=NULL) 
+dim(baolu1)
+write.xlsx(baolu1, "各项数据汇总.xlsx")
+jieju1 <-extract_outcome_data(
+  snps=baolu1$SNP,
+  outcomes='bbj-a119',
+  proxies=FALSE,
+  maf_threshold=0.01,
+  access_token=NULL)
+sapply(jieju1, function(x) is.factor(x) && length(unique(x)) != length(x))
+dup_levels <- sapply(jieju1, function(x) is.factor(x) && any(duplicated(x)))
+names(jieju1)[dup_levels]
+levels(jieju1$variable_with_dup_levels)
+jieju1 <- jieju1[!duplicated(jieju1), ]
+jieju1 <- jieju1 %>% distinct(SNP, .keep_all = TRUE)
+wb <- loadWorkbook("各项数据汇总.xlsx")
+addWorksheet(wb, "2结局")
+writeData(wb, "2结局", jieju1)
+saveWorkbook(wb, "各项数据汇总.xlsx", overwrite = TRUE)
+exposure_data=baolu1
+colnames(exposure_data)
+attach(exposure_data)
+exposure_data$SD<-se.exposure*180386^0.5#110207为该暴露数据集的样本量
+exposure_data$Rsquare<-2*(1-eaf.exposure)*eaf.exposure*((beta.exposure/exposure_data$SD)^2)
+exposure_data$Fvalue<-exposure_data$Rsquare*(180386-2)/(1-exposure_data$Rsquare)#110207为该暴露数据集的样本量
+detach(exposure_data)
+exposure_data<-subset(exposure_data,Fvalue>10)
+addWorksheet(wb, "3暴露F值")
+writeData(wb, "3暴露F值", exposure_data)
+saveWorkbook(wb, "各项数据汇总.xlsx", overwrite = TRUE)
+outcome_data=jieju1
+H_data <- harmonise_data(
+  exposure_dat = exposure_data, 
+  outcome_dat = outcome_data)
+addWorksheet(wb, "4暴露结局")
+writeData(wb, "4暴露结局", H_data)
+saveWorkbook(wb, "各项数据汇总.xlsx", overwrite = TRUE)
+mr_results<-mr(H_data)
+mr_results
+addWorksheet(wb, "5MR结果")
+writeData(wb, "5MR结果", mr_results)
+saveWorkbook(wb, "各项数据汇总.xlsx", overwrite = TRUE)
+mr(H_data, method_list=c("mr_egger_regression", "mr_ivw"))
+mr_method_list()
+head(mr_method_list())[,1:2]
+mr_resultsOR=generate_odds_ratios(mr_results)
+addWorksheet(wb, "6MRor结果")
+writeData(wb, "6MRor结果", mr_resultsOR)
+saveWorkbook(wb, "各项数据汇总.xlsx", overwrite = TRUE)
+aa=mr_pleiotropy_test(H_data)
+addWorksheet(wb, "7水平多效性分析")
+writeData(wb, "7水平多效性分析", aa)
+saveWorkbook(wb, "各项数据汇总.xlsx", overwrite = TRUE)
+bb=mr_heterogeneity(H_data, method_list=c("mr_egger_regression", "mr_ivw"))
+addWorksheet(wb, "8异质性分析")
+writeData(wb, "8异质性分析",bb)
+saveWorkbook(wb, "各项数据汇总.xlsx", overwrite = TRUE)
+heter1random=mr(H_data,method_list=c('mr_ivw_mre')) #使用随机效应模型
+View(heter1random)
+write.csv(heter1random,file = " heter1random.csv")
+colnames(H_data)
+mr_presso1=mr_presso(BetaOutcome = "beta.outcome", 
+                     BetaExposure = "beta.exposure", 
+                     SdOutcome = "se.outcome", 
+                     SdExposure = "se.exposure", 
+                     OUTLIERtest = TRUE, 
+                     DISTORTIONtest = TRUE, 
+                     data = H_data, 
+                     NbDistribution = 1000,  
+                     SignifThreshold = 0.05)
+mr_presso1
+addWorksheet(wb, "9 PRESSO")
+writeData(wb, "9 PRESSO",mr_presso1)
+saveWorkbook(wb, "各项数据汇总.xlsx", overwrite = TRUE)
+
+#多变量孟德尔随机化-#
+
+id_exposure <- c("ieu-a-299","ieu-a-300", "ieu-a-302") # 三个暴露分别是HDL cholesterol，LDL cholesterol和Triglycerides
+id_outcome <- "ieu-a-7"
+exposure_dat <- mv_extract_exposures(id_exposure)
+dim(exposure_dat)
+oucome_dat <- extract_outcome_data(exposure_dat$SNP, id_outcome) #提取结局数据
+mvdat <- mv_harmonise_data(exposure_dat,  outcome_dat) # 对数据进行harmonisation
+res <- mv_multiple(mvdat) #计算结果，大家也可以试试mv_residual()函数
